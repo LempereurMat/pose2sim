@@ -47,6 +47,7 @@ from collections import Counter
 from anytree import RenderTree
 from anytree.importer import DictImporter
 import logging
+import btk
 
 from Pose2Sim.common import retrieve_calib_params, computeP, weighted_triangulation, \
     reprojection, euclidean_distance, natural_sort, zup2yup
@@ -160,6 +161,45 @@ def make_trc(config, Q, keypoints_names, f_range, id_person=-1):
 
     return trc_path
 
+def make_c3d(config, Q, keypoints_names, f_range):
+    '''
+    Make c3d file from a dataframe with 3D coordinates
+
+    INPUT:
+    - config: dictionary of configuration parameters
+    - Q: pandas dataframe with 3D coordinates as columns, frame number as rows
+    - keypoints_names: list of strings
+    - f_range: list of two numbers. Range of frames
+
+    OUTPUT:
+    - c3d file
+    '''
+
+    # Read config
+    project_dir = config.get('project').get('project_dir')
+    if project_dir == '': project_dir = os.getcwd()
+    frame_rate = config.get('project').get('frame_rate')
+    seq_name = os.path.basename(project_dir)
+    pose3d_folder_name = config.get('project').get('pose3d_folder_name')
+    pose3d_dir = os.path.join(project_dir, 'pose-3d')
+
+    c3d_f = f'{seq_name}_{f_range[0]}-{f_range[1]}.c3d'
+    c3d_path = os.path.join(pose3d_dir, c3d_f)
+
+    acq = btk.btkAcquisition()
+    acq.Init(len(keypoints_names),f_range[1]-f_range[0])
+    for i in range(len(keypoints_names)):
+        newpoint = btk.btkPoint(keypoints_names[i],acq.GetPointFrameNumber())
+        newpoint.SetValues(1000*Q.loc[:,range(i*3,(i+1)*3)].to_numpy())
+        acq.SetPoint(i,newpoint)
+
+    writer = btk.btkAcquisitionFileWriter()
+    writer.SetInput(acq)
+    writer.SetFilename(c3d_path)
+    writer.Update()
+
+
+    return c3d_path
 
 def retrieve_right_trc_order(trc_paths):
     '''
@@ -766,6 +806,9 @@ def triangulate_all(config):
     
     # Create TRC file
     trc_paths = [make_trc(config, Q_tot[n], keypoints_names, f_range, id_person=n) for n in range(len(Q_tot))]
+    
+    # Create c3d file
+    c3d_path = make_c3d(config, Q_tot[n], keypoints_names, f_range)
 
     # Reorder TRC files
     if multi_person and reorder_trc and len(trc_paths)>1:
